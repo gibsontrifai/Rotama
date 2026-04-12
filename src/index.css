@@ -1,0 +1,94 @@
+@import 'tailwindcss';
+
+:root {
+  --font-body: 'Manrope', 'Avenir Next', 'Segoe UI', sans-serif;
+  --font-heading: 'Sora', 'Avenir Next', 'Segoe UI', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-heading);
+}
+
+#root {
+  min-height: 100svh;
+}
+
+@keyframes k3Bob {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes k3Wave {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  50% {
+    transform: rotate(-10deg);
+  }
+}
+
+@keyframes k3Blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes panelFadeSlide {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.k3-bob {
+  animation: k3Bob 4s ease-in-out infinite;
+}
+
+.k3-wave {
+  animation: k3Wave 2.2s ease-in-out infinite;
+}
+
+.k3-blink {
+  animation: k3Blink 1.7s ease-in-out infinite;
+}
+
+.panel-fade-slide {
+  transform-origin: top right;
+  animation: panelFadeSlide 0.18s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-fade-slide {
+    animation: none;
+    transform: none;
+  }
+}
