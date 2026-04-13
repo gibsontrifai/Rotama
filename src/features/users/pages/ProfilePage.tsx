@@ -1,9 +1,11 @@
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState } from 'react'
+import { useMutation } from '@tanstack/react-query'
 import { CircleMarker, MapContainer, TileLayer, Tooltip } from 'react-leaflet'
 import { useAuthStore } from '../../../shared/store/useAuthStore'
 import { Badge, Modal, SectionCard } from '../../../shared/ui'
 import { useToastStore } from '../../../shared/store/useToastStore'
 import { ROLE_LABEL } from '../../../app/rbac'
+import { updateProfileApi } from '../api/usersApi'
 
 type BranchMapConfig = {
   title: string
@@ -67,20 +69,10 @@ export function ProfilePage() {
     branch: session?.branch || '',
     expertise: (session?.expertise || []).join(', '),
   })
-  const [, setRenderKey] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    if (session) {
-      setEditForm({
-        fullName: session.fullName,
-        position: session.position,
-        branch: session.branch,
-        expertise: session.expertise.join(', '),
-      })
-      setRenderKey((k) => k + 1)
-    }
-  }, [fullName, position, branch, expertise])
+  const updateProfileMutation = useMutation({
+    mutationFn: updateProfileApi,
+  })
 
   if (!session) {
     return null
@@ -96,7 +88,7 @@ export function ProfilePage() {
     setEditModalOpen(true)
   }
 
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
@@ -113,16 +105,42 @@ export function ProfilePage() {
     }
 
     const reader = new FileReader()
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const dataUrl = event.target?.result as string
-      updateProfile({ avatar: dataUrl })
-      if (fileInputRef.current) fileInputRef.current.value = ''
-      addToast('Foto profil Anda berhasil diubah')
+
+      try {
+        const result = await updateProfileMutation.mutateAsync({
+          username: session.username,
+          fullName: session.fullName,
+          position: session.position,
+          branch: session.branch,
+          expertise: session.expertise,
+          avatar: dataUrl,
+        })
+
+        if (result) {
+          updateProfile({
+            fullName: result.fullName,
+            position: result.position,
+            branch: result.branch,
+            expertise: result.expertise,
+            avatar: result.avatar,
+          })
+        } else {
+          updateProfile({ avatar: dataUrl })
+        }
+
+        addToast('Foto profil Anda berhasil diubah')
+      } catch (error) {
+        addToast(error instanceof Error ? error.message : 'Gagal mengubah foto profil.', 'rose')
+      } finally {
+        if (fileInputRef.current) fileInputRef.current.value = ''
+      }
     }
     reader.readAsDataURL(file)
   }
 
-  const handleEditSubmit = (e: React.FormEvent) => {
+  const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     const expertiseArray = editForm.expertise
@@ -130,20 +148,38 @@ export function ProfilePage() {
       .map((exp) => exp.trim())
       .filter((exp) => exp.length > 0)
 
-    setEditModalOpen(false)
-
-    updateProfile(
-      {
+    try {
+      const result = await updateProfileMutation.mutateAsync({
+        username: session.username,
         fullName: editForm.fullName,
         position: editForm.position,
         branch: editForm.branch,
         expertise: expertiseArray,
-      },
-      () => {
-        setRenderKey((k) => k + 1)
-        addToast('Data profil Anda berhasil disimpan')
+        avatar: session.avatar,
+      })
+
+      if (result) {
+        updateProfile({
+          fullName: result.fullName,
+          position: result.position,
+          branch: result.branch,
+          expertise: result.expertise,
+          avatar: result.avatar,
+        })
+      } else {
+        updateProfile({
+          fullName: editForm.fullName,
+          position: editForm.position,
+          branch: editForm.branch,
+          expertise: expertiseArray,
+        })
       }
-    )
+
+      setEditModalOpen(false)
+      addToast('Data profil Anda berhasil disimpan')
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : 'Gagal menyimpan data profil.', 'rose')
+    }
   }
 
   const branchMap = getBranchMapConfig(branch || '')

@@ -6,7 +6,7 @@ import { useConfirmAction } from '../../../shared/hooks/useConfirmAction'
 import { Badge, ConfirmActionModal, FileUploadDropZone, MetricCard, Modal, SectionCard } from '../../../shared/ui'
 import { useToastStore } from '../../../shared/store/useToastStore'
 import { actionsQueryKeys } from '../api/actionsQueryKeys'
-import { fetchActionsMock, type ActionAttachment, type ActionStatus } from '../api/actionsApi'
+import { fetchActionsMock, isActionsBackendEnabled, type ActionAttachment, type ActionStatus } from '../api/actionsApi'
 import {
   useAddActionAttachmentMutation,
   useRemoveActionAttachmentMutation,
@@ -124,7 +124,7 @@ export function ActionDetailPage() {
         ? `${(selectedAttachmentFile.size / (1024 * 1024)).toFixed(1)} MB`
         : `${Math.max(1, Math.round(selectedAttachmentFile.size / 1024))} KB`
 
-    const previewUrl = isPhoto
+    const previewUrl = isPhoto && !isActionsBackendEnabled
       ? await new Promise<string>((resolve, reject) => {
           const reader = new FileReader()
           reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')

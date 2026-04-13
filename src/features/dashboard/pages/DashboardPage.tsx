@@ -1,15 +1,8 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import {
-  fetchActionsMock,
-  isActionDueSoon,
-  isActionDueToday,
-  isActionOverdue,
-  parseMockActionDate,
-  type ActionItem,
-} from '../../actions/api/actionsApi'
-import { actionsQueryKeys } from '../../actions/api/actionsQueryKeys'
+import { fetchDashboardSummaryApi, type DashboardSummary } from '../api/dashboardApi'
+import { dashboardQueryKeys } from '../api/dashboardQueryKeys'
 import { useToastStore } from '../../../shared/store/useToastStore'
 import { useUiStore } from '../../../shared/store/useUiStore'
 import { Badge, MetricCard, SectionCard } from '../../../shared/ui'
@@ -27,25 +20,7 @@ type ShiftSummary = {
   incidents: number
 }
 
-const shiftSummary: ShiftSummary[] = [
-  { shift: 'Shift A', area: 'Assembly Line', completion: 92, incidents: 0 },
-  { shift: 'Shift B', area: 'Warehouse', completion: 76, incidents: 1 },
-  { shift: 'Shift C', area: 'Loading Bay', completion: 84, incidents: 0 },
-]
-
-function getPriorityRank(priority: ActionItem['priority']) {
-  if (priority === 'Critical') {
-    return 0
-  }
-
-  if (priority === 'High') {
-    return 1
-  }
-
-  return 2
-}
-
-function getStatusTone(status: ActionItem['status']) {
+function getStatusTone(status: 'Open' | 'In Progress' | 'Blocked' | 'Done') {
   if (status === 'Done') {
     return 'emerald'
   }
@@ -62,39 +37,56 @@ export function DashboardPage() {
   const addToast = useToastStore((state) => state.addToast)
   const showCriticalOnly = useUiStore((state) => state.showCriticalOnly)
   const toggleCriticalOnly = useUiStore((state) => state.toggleCriticalOnly)
-  const { data: actionItems = [] } = useQuery({
-    queryKey: actionsQueryKeys.mock(),
-    queryFn: fetchActionsMock,
-    staleTime: Infinity,
+
+  const { data } = useQuery({
+    queryKey: dashboardQueryKeys.summary(),
+    queryFn: () => fetchDashboardSummaryApi(),
+    staleTime: 30_000,
     refetchOnWindowFocus: false,
   })
 
-  const kpis = useMemo(() => {
-    const activeItems = actionItems.filter((item) => item.status !== 'Done')
-    const criticalItems = activeItems.filter((item) => item.priority === 'Critical')
-    const inspectionItems = actionItems.filter((item) => item.source === 'Inspection')
-    const incidentItems = actionItems.filter((item) => item.source === 'Incident')
+  const summary: DashboardSummary =
+    data ||
+    ({
+      kpis: {
+        openFindings: 0,
+        criticalRisk: 0,
+        inspectionsThisWeek: 0,
+        nearMissReports: 0,
+      },
+      capaSummary: {
+        overdueCount: 0,
+        dueTodayCount: 0,
+        dueSoonCount: 0,
+        blockedCount: 0,
+        spotlightItems: [],
+      },
+      sourceMix: [],
+      shiftPerformance: [],
+      upcomingInspections: [],
+    } as DashboardSummary)
 
+  const kpis = useMemo(() => {
     const computedKpis: Kpi[] = [
       {
         label: 'Open Findings',
-        value: String(activeItems.length),
-        trend: activeItems.length > 8 ? 'down' : 'up',
+        value: String(summary.kpis.openFindings),
+        trend: summary.kpis.openFindings > 8 ? 'down' : 'up',
       },
       {
         label: 'Critical Risk',
-        value: String(criticalItems.length),
-        trend: criticalItems.length > 3 ? 'down' : 'up',
+        value: String(summary.kpis.criticalRisk),
+        trend: summary.kpis.criticalRisk > 3 ? 'down' : 'up',
       },
       {
         label: 'Inspections This Week',
-        value: String(inspectionItems.length),
-        trend: inspectionItems.length > 15 ? 'up' : 'down',
+        value: String(summary.kpis.inspectionsThisWeek),
+        trend: summary.kpis.inspectionsThisWeek > 15 ? 'up' : 'down',
       },
       {
         label: 'Near Miss Reports',
-        value: String(incidentItems.length),
-        trend: incidentItems.length > 10 ? 'up' : 'down',
+        value: String(summary.kpis.nearMissReports),
+        trend: summary.kpis.nearMissReports > 10 ? 'up' : 'down',
       },
     ]
 
@@ -103,75 +95,12 @@ export function DashboardPage() {
     }
 
     return computedKpis.filter((kpi) => kpi.label.includes('Critical'))
-  }, [actionItems, showCriticalOnly])
+  }, [showCriticalOnly, summary.kpis])
 
-  const capaSummary = useMemo(() => {
-    const activeItems = actionItems.filter((item) => item.status !== 'Done')
-
-    const enrichedItems = activeItems
-      .map((item) => {
-        const dueAt = parseMockActionDate(item.dueDate)
-
-        return {
-          ...item,
-          dueAt,
-        }
-      })
-      .sort((left, right) => {
-        const leftRank = getPriorityRank(left.priority)
-        const rightRank = getPriorityRank(right.priority)
-
-        if (leftRank !== rightRank) {
-          return leftRank - rightRank
-        }
-
-        if (left.dueAt && right.dueAt) {
-          return left.dueAt.getTime() - right.dueAt.getTime()
-        }
-
-        if (left.dueAt) {
-          return -1
-        }
-
-        if (right.dueAt) {
-          return 1
-        }
-
-        return left.title.localeCompare(right.title)
-      })
-
-    const overdue = enrichedItems.filter((item) => isActionOverdue(item))
-    const dueToday = enrichedItems.filter((item) => isActionDueToday(item))
-    const dueSoon = enrichedItems.filter((item) => isActionDueSoon(item))
-    const blocked = enrichedItems.filter((item) => item.status === 'Blocked')
-
-    return {
-      overdueCount: overdue.length,
-      dueTodayCount: dueToday.length,
-      dueSoonCount: dueSoon.length,
-      blockedCount: blocked.length,
-      spotlightItems: enrichedItems.slice(0, 4),
-    }
-  }, [actionItems])
-
-  const sourceSummary = useMemo(() => {
-    const sourceOrder: Array<ActionItem['source']> = ['Incident', 'Inspection', 'Audit']
-
-    return sourceOrder.map((source) => {
-      const items = actionItems.filter((item) => item.source === source)
-      const activeItems = items.filter((item) => item.status !== 'Done')
-      const overdueItems = activeItems.filter((item) => isActionOverdue(item))
-      const averageProgress = items.length > 0 ? Math.round(items.reduce((total, item) => total + item.progress, 0) / items.length) : 0
-
-      return {
-        source,
-        total: items.length,
-        active: activeItems.length,
-        overdue: overdueItems.length,
-        averageProgress,
-      }
-    })
-  }, [actionItems])
+  const capaSummary = summary.capaSummary
+  const sourceSummary = summary.sourceMix
+  const shiftSummary: ShiftSummary[] = summary.shiftPerformance
+  const upcomingInspections = summary.upcomingInspections
 
   return (
     <section className="space-y-6">
@@ -397,11 +326,7 @@ export function DashboardPage() {
 
         <SectionCard title="Upcoming Inspections" subtitle="Agenda 24 jam berikutnya.">
           <div className="mt-4 space-y-3">
-            {[
-              { time: '09:30', area: 'Boiler Room', pic: 'Gibson' },
-              { time: '11:00', area: 'Chemical Storage', pic: 'Baharuddin' },
-              { time: '15:30', area: 'Packing Station', pic: 'Marusel' },
-            ].map((item) => (
+            {upcomingInspections.map((item) => (
               <div key={item.time + item.area} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-cyan-700">{item.time}</p>
                 <p className="mt-1 font-semibold text-slate-900">{item.area}</p>

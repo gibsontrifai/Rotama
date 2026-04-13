@@ -1,3 +1,5 @@
+import { useAuthStore } from '../../../shared/store/useAuthStore'
+
 export type IncidentItem = {
   id: string
   title: string
@@ -7,6 +9,9 @@ export type IncidentItem = {
   pic: string
   reportedAt: string
 }
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+const USE_MOCK_INCIDENTS = import.meta.env.VITE_USE_MOCK_INCIDENTS === 'true'
 
 const mockIncidents: IncidentItem[] = [
   {
@@ -47,7 +52,43 @@ const mockIncidents: IncidentItem[] = [
   },
 ]
 
+async function parseErrorMessage(response: Response) {
+  try {
+    const data = (await response.json()) as { message?: string; error?: { message?: string } }
+    return data.error?.message || data.message || 'Permintaan incidents gagal diproses.'
+  } catch {
+    return 'Permintaan incidents gagal diproses.'
+  }
+}
+
+async function incidentsRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = useAuthStore.getState().session?.accessToken
+
+  if (!token) {
+    throw new Error('Sesi tidak ditemukan. Silakan login ulang.')
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      ...(init?.headers || {}),
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+
+  return (await response.json()) as T
+}
+
 export async function fetchIncidentsMock(): Promise<IncidentItem[]> {
+  if (!USE_MOCK_INCIDENTS && API_BASE_URL) {
+    return incidentsRequest<IncidentItem[]>('/incidents')
+  }
+
   await new Promise((resolve) => setTimeout(resolve, 350))
   return mockIncidents
 }

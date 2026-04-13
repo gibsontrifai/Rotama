@@ -82,6 +82,20 @@ BEGIN
   END IF;
 END $$;
 
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'shift_code') THEN
+    CREATE TYPE shift_code AS ENUM ('Shift A', 'Shift B', 'Shift C');
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'inspection_schedule_status') THEN
+    CREATE TYPE inspection_schedule_status AS ENUM ('Scheduled', 'In Progress', 'Completed', 'Cancelled');
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS branches (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   code VARCHAR(50) NOT NULL UNIQUE,
@@ -99,6 +113,8 @@ CREATE TABLE IF NOT EXISTS app_users (
   username VARCHAR(50) NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   full_name VARCHAR(150) NOT NULL,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  phone_number VARCHAR(30),
   role user_role NOT NULL,
   position VARCHAR(150) NOT NULL,
   branch_id BIGINT REFERENCES branches(id) ON DELETE SET NULL,
@@ -225,20 +241,51 @@ CREATE TABLE IF NOT EXISTS report_focus_metrics (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS dashboard_shift_performance (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  snapshot_label VARCHAR(50) NOT NULL DEFAULT 'seed-2026-04',
+  shift shift_code NOT NULL,
+  area VARCHAR(150) NOT NULL,
+  checklist_completion NUMERIC(5, 2) NOT NULL CHECK (checklist_completion >= 0 AND checklist_completion <= 100),
+  incident_count INTEGER NOT NULL DEFAULT 0 CHECK (incident_count >= 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (snapshot_label, shift, area)
+);
+
+CREATE TABLE IF NOT EXISTS inspection_schedules (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  schedule_code VARCHAR(30) NOT NULL UNIQUE,
+  area VARCHAR(150) NOT NULL,
+  pic_name VARCHAR(150) NOT NULL,
+  scheduled_at TIMESTAMPTZ NOT NULL,
+  status inspection_schedule_status NOT NULL DEFAULT 'Scheduled',
+  source_inspection_id VARCHAR(20) REFERENCES inspections(id) ON DELETE SET NULL,
+  created_by BIGINT REFERENCES app_users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_app_users_role ON app_users(role);
 CREATE INDEX IF NOT EXISTS idx_app_users_branch_id ON app_users(branch_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_app_users_email ON app_users(email);
 CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status);
 CREATE INDEX IF NOT EXISTS idx_incidents_area ON incidents(area);
 CREATE INDEX IF NOT EXISTS idx_inspections_status ON inspections(status);
 CREATE INDEX IF NOT EXISTS idx_actions_status ON action_items(status);
 CREATE INDEX IF NOT EXISTS idx_actions_due_at ON action_items(due_at);
 CREATE INDEX IF NOT EXISTS idx_notifications_roles ON notifications USING GIN(target_roles);
+CREATE INDEX IF NOT EXISTS idx_dashboard_shift_snapshot ON dashboard_shift_performance(snapshot_label);
+CREATE INDEX IF NOT EXISTS idx_inspection_schedules_scheduled_at ON inspection_schedules(scheduled_at);
+CREATE INDEX IF NOT EXISTS idx_inspection_schedules_status ON inspection_schedules(status);
 
 COMMENT ON TABLE app_users IS 'Mock user data adapted from frontend auth and user-management features.';
 COMMENT ON COLUMN app_users.password_hash IS 'Replace mock values with bcrypt/argon2 hashes in production.';
 COMMENT ON TABLE user_sessions IS 'Optional session storage for login/refresh-token backend implementation.';
 COMMENT ON TABLE report_area_safety_snapshot IS 'Seed snapshot for reports page summary table.';
 COMMENT ON TABLE report_trends IS 'Seed chart values for reports trend bars.';
+COMMENT ON TABLE dashboard_shift_performance IS 'Seed rows backing dashboard Shift Safety Performance widget.';
+COMMENT ON TABLE inspection_schedules IS 'Planned inspection agenda for dashboard Upcoming Inspections widget.';
 
 INSERT INTO branches (code, name, city, is_head_office, latitude, longitude)
 VALUES
@@ -254,12 +301,14 @@ SET
   longitude = EXCLUDED.longitude,
   updated_at = NOW();
 
-INSERT INTO app_users (username, password_hash, full_name, role, position, branch_id, avatar_url)
+INSERT INTO app_users (username, password_hash, full_name, email, phone_number, role, position, branch_id, avatar_url)
 VALUES
   (
     'admin',
-    'mock-password-123456',
+    '$2b$10$mqlImjg4erMm4.A9o6vlk.FYpdWT3YiMlcNowV6VCWE2zRy5myEpS',
     'Budi Santoso',
+    'admin@safetyhub.local',
+    '081111111111',
     'administrator',
     'Safety Manager',
     (SELECT id FROM branches WHERE code = 'HO-JKT'),
@@ -267,8 +316,10 @@ VALUES
   ),
   (
     'supervisor',
-    'mock-password-123456',
+    '$2b$10$mqlImjg4erMm4.A9o6vlk.FYpdWT3YiMlcNowV6VCWE2zRy5myEpS',
     'Siti Nurhaliza',
+    'supervisor@safetyhub.local',
+    '082222222222',
     'supervisor',
     'Health & Safety Supervisor',
     (SELECT id FROM branches WHERE code = 'BDG-PLANT'),
@@ -276,8 +327,10 @@ VALUES
   ),
   (
     'teknisi',
-    'mock-password-123456',
+    '$2b$10$mqlImjg4erMm4.A9o6vlk.FYpdWT3YiMlcNowV6VCWE2zRy5myEpS',
     'Ahmad Hidayat',
+    'teknisi@safetyhub.local',
+    '083333333333',
     'technician',
     'Teknisi K3',
     (SELECT id FROM branches WHERE code = 'SBY-PLANT'),
@@ -285,8 +338,10 @@ VALUES
   ),
   (
     'inspector',
-    'mock-password-123456',
+    '$2b$10$mqlImjg4erMm4.A9o6vlk.FYpdWT3YiMlcNowV6VCWE2zRy5myEpS',
     'Ahmad Hidayat',
+    'inspector@safetyhub.local',
+    '084444444444',
     'technician',
     'Safety Inspector',
     (SELECT id FROM branches WHERE code = 'SBY-PLANT'),
@@ -296,6 +351,8 @@ ON CONFLICT (username) DO UPDATE
 SET
   password_hash = EXCLUDED.password_hash,
   full_name = EXCLUDED.full_name,
+  email = EXCLUDED.email,
+  phone_number = EXCLUDED.phone_number,
   role = EXCLUDED.role,
   position = EXCLUDED.position,
   branch_id = EXCLUDED.branch_id,
@@ -540,5 +597,51 @@ VALUES
   ('Near Miss'),
   ('CAPA')
 ON CONFLICT (metric) DO NOTHING;
+
+INSERT INTO dashboard_shift_performance (snapshot_label, shift, area, checklist_completion, incident_count)
+VALUES
+  ('seed-2026-04', 'Shift A', 'Assembly Line', 92.00, 0),
+  ('seed-2026-04', 'Shift B', 'Warehouse', 76.00, 1),
+  ('seed-2026-04', 'Shift C', 'Loading Bay', 84.00, 0)
+ON CONFLICT (snapshot_label, shift, area) DO UPDATE
+SET
+  checklist_completion = EXCLUDED.checklist_completion,
+  incident_count = EXCLUDED.incident_count,
+  updated_at = NOW();
+
+INSERT INTO inspection_schedules (schedule_code, area, pic_name, scheduled_at, status, created_by)
+VALUES
+  (
+    'SCH-20260412-01',
+    'Boiler Room',
+    'Gibson',
+    TIMESTAMPTZ '2026-04-12 09:30:00+07',
+    'Scheduled',
+    (SELECT id FROM app_users WHERE username = 'supervisor')
+  ),
+  (
+    'SCH-20260412-02',
+    'Chemical Storage',
+    'Baharuddin',
+    TIMESTAMPTZ '2026-04-12 11:00:00+07',
+    'Scheduled',
+    (SELECT id FROM app_users WHERE username = 'teknisi')
+  ),
+  (
+    'SCH-20260412-03',
+    'Packing Station',
+    'Marusel',
+    TIMESTAMPTZ '2026-04-12 15:30:00+07',
+    'Scheduled',
+    (SELECT id FROM app_users WHERE username = 'inspector')
+  )
+ON CONFLICT (schedule_code) DO UPDATE
+SET
+  area = EXCLUDED.area,
+  pic_name = EXCLUDED.pic_name,
+  scheduled_at = EXCLUDED.scheduled_at,
+  status = EXCLUDED.status,
+  created_by = EXCLUDED.created_by,
+  updated_at = NOW();
 
 COMMIT;
