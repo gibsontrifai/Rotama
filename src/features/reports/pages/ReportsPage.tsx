@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useConfirmAction } from '../../../shared/hooks/useConfirmAction'
 import { useQueryParamBoolean } from '../../../shared/hooks/useQueryParamBoolean'
 import { useQueryParamEnum } from '../../../shared/hooks/useQueryParamEnum'
@@ -10,7 +10,7 @@ import { useToastStore } from '../../../shared/store/useToastStore'
 import { Badge, ConfirmActionModal, DataTable, MetricCard, SectionCard } from '../../../shared/ui'
 import { createTableQueryParamKeys } from '../../../shared/utils/createTableQueryParamKeys'
 import { fetchReportsDatasetMock, type ExportTarget, type FocusMetric, type TrendPeriod } from '../api/reportsApi'
-import { useExportReportMutation } from '../api/reportsMutations'
+import { useExportReportMutation, useUpdateFocusMetricsMutation } from '../api/reportsMutations'
 import { reportsQueryKeys } from '../api/reportsQueryKeys'
 
 const periodValues = ['30d', '90d', 'ytd'] as const
@@ -19,9 +19,11 @@ type TableSortKey = (typeof tableSortValues)[number]
 const tableQueryKeys = createTableQueryParamKeys('tbl')
 
 export function ReportsPage() {
+  const queryClient = useQueryClient()
   const addToast = useToastStore((state) => state.addToast)
   const exportConfirm = useConfirmAction<ExportTarget>()
   const exportReportMutation = useExportReportMutation()
+  const updateFocusMetricsMutation = useUpdateFocusMetricsMutation()
   const { data: reportsDataset, isLoading, isError } = useQuery({
     queryKey: reportsQueryKeys.dataset(),
     queryFn: fetchReportsDatasetMock,
@@ -47,7 +49,7 @@ export function ReportsPage() {
     defaultValue: 'All Areas',
   })
 
-  const { values: focusMetrics, toggleValue: toggleFocusMetric } = useQueryParamList<FocusMetric>({
+  const { values: focusMetrics, setValues: setFocusMetrics } = useQueryParamList<FocusMetric>({
     key: 'metrics',
     values: allFocusMetrics,
     defaultValues: allFocusMetrics,
@@ -135,6 +137,24 @@ export function ReportsPage() {
     exportConfirm.close()
   }
 
+  const updateFocusMetrics = async (metric: FocusMetric) => {
+    const nextMetrics = focusMetrics.includes(metric)
+      ? focusMetrics.filter((item) => item !== metric)
+      : [...focusMetrics, metric]
+
+    if (nextMetrics.length === 0) {
+      return
+    }
+
+    try {
+      const nextDataset = await updateFocusMetricsMutation.mutateAsync(nextMetrics)
+      queryClient.setQueryData(reportsQueryKeys.dataset(), nextDataset)
+      setFocusMetrics(nextDataset.allFocusMetrics)
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : 'Gagal memperbarui focus metrics.', 'rose')
+    }
+  }
+
   return (
     <section className="space-y-6">
       {isLoading ? (
@@ -187,7 +207,7 @@ export function ReportsPage() {
         <SectionCard title="Monthly Incident Trend" subtitle="Perbandingan incident 6 bulan terakhir.">
           <div className="mt-4 grid grid-cols-6 items-end gap-3">
             {trendValues.map((value, index) => (
-              <div key={value + index} className="space-y-2 text-center">
+              <div key={`trend-month-${index}`} className="space-y-2 text-center">
                 <div className="mx-auto flex h-36 w-10 items-end rounded-xl bg-slate-100 p-1">
                   <div
                     className="w-full rounded-lg bg-[linear-gradient(180deg,#6366f1_0%,#0ea5e9_100%)]"
@@ -236,7 +256,7 @@ export function ReportsPage() {
                     <button
                       key={metric}
                       type="button"
-                      onClick={() => toggleFocusMetric(metric, true)}
+                      onClick={() => void updateFocusMetrics(metric)}
                       className={
                         active
                           ? 'rounded-full border border-slate-800 bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white'

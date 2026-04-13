@@ -28,6 +28,7 @@ const inspectionSchema = z.object({
   area: z.string().min(2, 'Area minimal 2 karakter'),
   inspector: z.string().min(2, 'Nama inspector minimal 2 karakter'),
   score: z.coerce.number().min(1, 'Skor minimal 1').max(100, 'Skor maksimal 100'),
+  checklistCategories: z.array(z.string()).optional(),
 })
 
 type InspectionInput = z.infer<typeof inspectionSchema>
@@ -96,6 +97,7 @@ export function InspectionsPage() {
   const [nextActionTitle, setNextActionTitle] = useState('')
   const [nextActionOwner, setNextActionOwner] = useState('')
   const [nextActionPriority, setNextActionPriority] = useState<'Critical' | 'High' | 'Medium'>('High')
+  const [selectedChecklist, setSelectedChecklist] = useState<string[]>(['Apar'])
 
   const {
     register,
@@ -125,14 +127,17 @@ export function InspectionsPage() {
       area: values.area,
       inspector: values.inspector,
       score: values.score,
+      checklistCategories: selectedChecklist,
     })
     reset()
+    setSelectedChecklist(['Apar'])
     addToast('Inspection berhasil disimpan.', 'emerald')
   }
 
   const { isRunning: isResetting, run: runReset } = useAsyncAction(async () => {
     await new Promise((resolve) => setTimeout(resolve, 350))
     reset()
+    setSelectedChecklist(['Apar'])
     resetConfirm.close()
     addToast('Form inspection berhasil di-reset.', 'emerald')
   })
@@ -583,7 +588,7 @@ export function InspectionsPage() {
           <input
             {...register('inspector')}
             className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none ring-teal-200 transition focus:ring"
-            placeholder="Rizky"
+            placeholder="Royal Sultan"
           />
           {errors.inspector ? <p className="text-xs text-rose-700">{errors.inspector.message}</p> : null}
         </label>
@@ -600,10 +605,21 @@ export function InspectionsPage() {
 
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
           <p className="text-sm font-semibold text-slate-800">Checklist Category</p>
-          <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-slate-700">
-            {['APD', 'Housekeeping', 'Electrical', 'Fire Safety'].map((item) => (
+          <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-slate-700 md:grid-cols-3">
+            {['Motor Diesel', 'Apar', 'Hidrant', 'Alarm', 'Panel Listrik', 'Forklip', 'Cargo Lift', 'Compresor'].map((item) => (
               <label key={item} className="inline-flex items-center gap-2">
-                <input type="checkbox" className="h-4 w-4 rounded border-slate-300" defaultChecked={item === 'APD'} />
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300"
+                  checked={selectedChecklist.includes(item)}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedChecklist([...selectedChecklist, item])
+                    } else {
+                      setSelectedChecklist(selectedChecklist.filter((c) => c !== item))
+                    }
+                  }}
+                />
                 {item}
               </label>
             ))}

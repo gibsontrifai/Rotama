@@ -1,3 +1,5 @@
+import { useAuthStore } from '../../../shared/store/useAuthStore'
+
 export type TrendPeriod = '30d' | '90d' | 'ytd'
 export type FocusMetric = 'TRIR' | 'Near Miss' | 'CAPA'
 export type ExportTarget = 'pdf' | 'excel'
@@ -17,6 +19,10 @@ export type ReportsDataset = {
   trendByAreaAndPeriod: Record<string, Record<TrendPeriod, number[]>>
   allFocusMetrics: FocusMetric[]
 }
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+const USE_MOCK_REPORTS = import.meta.env.VITE_USE_MOCK_REPORTS === 'true'
+const isReportsBackendEnabled = !USE_MOCK_REPORTS && API_BASE_URL.length > 0
 
 const areaSafetyRows: AreaSafetyRow[] = [
   { area: 'Warehouse', inspections: 38, incidents: 5, compliance: 87, trir: 2.1, nearMiss: 7, capa: 11 },
@@ -55,7 +61,43 @@ const trendByAreaAndPeriod: Record<string, Record<TrendPeriod, number[]>> = {
 
 const allFocusMetrics: FocusMetric[] = ['TRIR', 'Near Miss', 'CAPA']
 
+async function parseErrorMessage(response: Response) {
+  try {
+    const data = (await response.json()) as { message?: string; error?: { message?: string } }
+    return data.error?.message || data.message || 'Permintaan reports gagal diproses.'
+  } catch {
+    return 'Permintaan reports gagal diproses.'
+  }
+}
+
+async function reportsRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = useAuthStore.getState().session?.accessToken
+
+  if (!token) {
+    throw new Error('Sesi tidak ditemukan. Silakan login ulang.')
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      ...(init?.headers || {}),
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+
+  return (await response.json()) as T
+}
+
 export async function fetchReportsDatasetMock(): Promise<ReportsDataset> {
+  if (isReportsBackendEnabled) {
+    return reportsRequest<ReportsDataset>('/reports/dataset')
+  }
+
   await new Promise((resolve) => setTimeout(resolve, 250))
   return {
     areaSafetyRows,
@@ -65,6 +107,32 @@ export async function fetchReportsDatasetMock(): Promise<ReportsDataset> {
 }
 
 export async function exportReportMock(target: ExportTarget): Promise<ExportTarget> {
+  if (isReportsBackendEnabled) {
+    const response = await reportsRequest<{ target: ExportTarget }>('/reports/export', {
+      method: 'POST',
+      body: JSON.stringify({ target }),
+    })
+
+    return response.target
+  }
+
   await new Promise((resolve) => setTimeout(resolve, 500))
   return target
+}
+
+export async function updateFocusMetricsMock(metrics: FocusMetric[]): Promise<ReportsDataset> {
+  if (isReportsBackendEnabled) {
+    return reportsRequest<ReportsDataset>('/reports/focus-metrics', {
+      method: 'POST',
+      body: JSON.stringify({ metrics }),
+    })
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, 300))
+
+  return {
+    areaSafetyRows,
+    trendByAreaAndPeriod,
+    allFocusMetrics: metrics,
+  }
 }

@@ -1,16 +1,28 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../shared/store/useAuthStore'
-import { useNotificationStore } from '../../shared/store/useNotificationStore'
 import { ROLE_LABEL, ROLE_NAV_ITEMS } from '../rbac'
+import { fetchNotifications, markNotificationAsRead } from '../../features/notifications/api/notificationsApi'
 
 export function MainLayout() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const session = useAuthStore((state) => state.session)
   const logout = useAuthStore((state) => state.logout)
-  const notifications = useNotificationStore((state) => state.notifications)
-  const markAsRead = useNotificationStore((state) => state.markAsRead)
-  const markAllAsReadByRole = useNotificationStore((state) => state.markAllAsReadByRole)
+  const { data: notifications = [] } = useQuery({
+    queryKey: ['notifications', 'list'],
+    queryFn: fetchNotifications,
+    enabled: !!session,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  })
+  const markAsReadMutation = useMutation({
+    mutationFn: markNotificationAsRead,
+    onSuccess: (nextNotifications) => {
+      queryClient.setQueryData(['notifications', 'list'], nextNotifications)
+    },
+  })
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [isNotificationOpen, setIsNotificationOpen] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
@@ -61,15 +73,21 @@ export function MainLayout() {
     return item.roles.includes(session.role)
   })
 
-  const visibleNotifications = useMemo(() => {
-    if (!session) {
-      return []
-    }
-
-    return notifications.filter((item) => item.targetRoles.includes(session.role))
-  }, [notifications, session])
+  const visibleNotifications = !session
+    ? []
+    : notifications.filter((item) => item.targetRoles.includes(session.role))
 
   const unreadCount = visibleNotifications.filter((item) => item.unread).length
+
+  const markAllAsRead = async () => {
+    const unreadNotificationIds = visibleNotifications.filter((item) => item.unread).map((item) => item.id)
+
+    for (const notificationId of unreadNotificationIds) {
+      // Sequential requests keep update order deterministic for dropdown rendering.
+      // eslint-disable-next-line no-await-in-loop
+      await markAsReadMutation.mutateAsync(notificationId)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[linear-gradient(145deg,#fffaf0_0%,#f0fdfa_52%,#f8fafc_100%)] text-slate-900">
@@ -138,13 +156,7 @@ export function MainLayout() {
                         </span>
                         <button
                           type="button"
-                          onClick={() => {
-                            if (!session) {
-                              return
-                            }
-
-                            markAllAsReadByRole(session.role)
-                          }}
+                          onClick={() => void markAllAsRead()}
                           className="rounded-md border border-teal-200 bg-white px-2 py-1 text-[11px] font-semibold text-teal-700 transition hover:bg-teal-50"
                         >
                           Mark all
@@ -185,7 +197,7 @@ export function MainLayout() {
                             <div className="mt-2 flex justify-end">
                               <button
                                 type="button"
-                                onClick={() => markAsRead(item.id)}
+                                onClick={() => void markAsReadMutation.mutateAsync(item.id)}
                                 className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
                               >
                                 Mark read

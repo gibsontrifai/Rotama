@@ -1,47 +1,24 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import type { ActionAttachment, ActionItem, ActionStatus, ActionUpdate } from './actionsApi'
+import {
+  addActionAttachmentApi,
+  assignActionOwnerApi,
+  createActionApi,
+  isActionsBackendEnabled,
+  removeActionAttachmentApi,
+  updateActionProgressApi,
+  updateActionStatusApi,
+  type ActionAttachment,
+  type ActionItem,
+  type ActionStatus,
+  type ActionUpdate,
+  type AddActionAttachmentPayload,
+  type AssignOwnerPayload,
+  type CreateActionPayload,
+  type RemoveActionAttachmentPayload,
+  type UpdateActionProgressPayload,
+  type UpdateActionStatusPayload,
+} from './actionsApi'
 import { actionsQueryKeys } from './actionsQueryKeys'
-
-type AssignOwnerPayload = {
-  actionId: string
-  owner: string
-}
-
-type UpdateActionStatusPayload = {
-  actionId: string
-  status: ActionStatus
-}
-
-type UpdateActionProgressPayload = {
-  actionId: string
-  progress: number
-  status: ActionStatus
-  note: string
-}
-
-type AddActionAttachmentPayload = {
-  actionId: string
-  name: string
-  kind: ActionAttachment['kind']
-  mimeType?: string
-  sizeLabel?: string
-  previewUrl?: string
-}
-
-type RemoveActionAttachmentPayload = {
-  actionId: string
-  attachmentId: string
-}
-
-type CreateActionPayload = {
-  title: string
-  area: string
-  source: ActionItem['source']
-  sourceRef: string
-  priority: ActionItem['priority']
-  owner: string
-  dueDate: string
-}
 
 async function assignActionOwnerMock(payload: AssignOwnerPayload): Promise<AssignOwnerPayload> {
   await new Promise((resolve) => setTimeout(resolve, 420))
@@ -128,10 +105,24 @@ export function useAssignActionOwnerMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: assignActionOwnerMock,
-    onSuccess: ({ actionId, owner }) => {
+    mutationFn: async (payload: AssignOwnerPayload) => {
+      if (isActionsBackendEnabled) {
+        return assignActionOwnerApi(payload)
+      }
+
+      await assignActionOwnerMock(payload)
+      return null
+    },
+    onSuccess: (result, variables) => {
+      if (isActionsBackendEnabled && result) {
+        queryClient.setQueryData<ActionItem[]>(actionsQueryKeys.mock(), (previous) =>
+          (previous ?? []).map((action) => (action.id === result.id ? result : action)),
+        )
+        return
+      }
+
       queryClient.setQueryData<ActionItem[]>(actionsQueryKeys.mock(), (previous) =>
-        (previous ?? []).map((action) => (action.id === actionId ? { ...action, owner } : action)),
+        (previous ?? []).map((action) => (action.id === variables.actionId ? { ...action, owner: variables.owner } : action)),
       )
     },
   })
@@ -141,12 +132,26 @@ export function useUpdateActionStatusMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: updateActionStatusMock,
-    onSuccess: ({ actionId, status }) => {
+    mutationFn: async (payload: UpdateActionStatusPayload) => {
+      if (isActionsBackendEnabled) {
+        return updateActionStatusApi(payload)
+      }
+
+      await updateActionStatusMock(payload)
+      return null
+    },
+    onSuccess: (result, variables) => {
+      if (isActionsBackendEnabled && result) {
+        queryClient.setQueryData<ActionItem[]>(actionsQueryKeys.mock(), (previous) =>
+          (previous ?? []).map((action) => (action.id === result.id ? result : action)),
+        )
+        return
+      }
+
       queryClient.setQueryData<ActionItem[]>(actionsQueryKeys.mock(), (previous) =>
         (previous ?? []).map((action) =>
-          action.id === actionId
-            ? { ...action, status, progress: getProgressByStatus(status, action.progress) }
+          action.id === variables.actionId
+            ? { ...action, status: variables.status, progress: getProgressByStatus(variables.status, action.progress) }
             : action,
         ),
       )
@@ -158,16 +163,30 @@ export function useUpdateActionProgressMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: updateActionProgressMock,
-    onSuccess: ({ actionId, progress, status, note }) => {
+    mutationFn: async (payload: UpdateActionProgressPayload) => {
+      if (isActionsBackendEnabled) {
+        return updateActionProgressApi(payload)
+      }
+
+      await updateActionProgressMock(payload)
+      return null
+    },
+    onSuccess: (result, variables) => {
+      if (isActionsBackendEnabled && result) {
+        queryClient.setQueryData<ActionItem[]>(actionsQueryKeys.mock(), (previous) =>
+          (previous ?? []).map((action) => (action.id === result.id ? result : action)),
+        )
+        return
+      }
+
       queryClient.setQueryData<ActionItem[]>(actionsQueryKeys.mock(), (previous) =>
         (previous ?? []).map((action) =>
-          action.id === actionId
+          action.id === variables.actionId
             ? {
                 ...action,
-                progress,
-                status,
-                updates: [buildProgressUpdate(progress, status, note), ...action.updates],
+                progress: variables.progress,
+                status: variables.status,
+                updates: [buildProgressUpdate(variables.progress, variables.status, variables.note), ...action.updates],
               }
             : action,
         ),
@@ -180,14 +199,37 @@ export function useAddActionAttachmentMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: addActionAttachmentMock,
-    onSuccess: ({ actionId, name, kind, mimeType, sizeLabel, previewUrl }) => {
+    mutationFn: async (payload: AddActionAttachmentPayload) => {
+      if (isActionsBackendEnabled) {
+        return addActionAttachmentApi(payload)
+      }
+
+      await addActionAttachmentMock(payload)
+      return null
+    },
+    onSuccess: (result, variables) => {
+      if (isActionsBackendEnabled && result) {
+        queryClient.setQueryData<ActionItem[]>(actionsQueryKeys.mock(), (previous) =>
+          (previous ?? []).map((action) => (action.id === result.id ? result : action)),
+        )
+        return
+      }
+
       queryClient.setQueryData<ActionItem[]>(actionsQueryKeys.mock(), (previous) =>
         (previous ?? []).map((action) =>
-          action.id === actionId
+          action.id === variables.actionId
             ? {
                 ...action,
-                attachments: [buildAttachment(name, kind, mimeType, sizeLabel, previewUrl), ...action.attachments],
+                attachments: [
+                  buildAttachment(
+                    variables.name,
+                    variables.kind,
+                    variables.mimeType,
+                    variables.sizeLabel,
+                    variables.previewUrl,
+                  ),
+                  ...action.attachments,
+                ],
               }
             : action,
         ),
@@ -200,14 +242,28 @@ export function useRemoveActionAttachmentMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: removeActionAttachmentMock,
-    onSuccess: ({ actionId, attachmentId }) => {
+    mutationFn: async (payload: RemoveActionAttachmentPayload) => {
+      if (isActionsBackendEnabled) {
+        return removeActionAttachmentApi(payload)
+      }
+
+      await removeActionAttachmentMock(payload)
+      return null
+    },
+    onSuccess: (result, variables) => {
+      if (isActionsBackendEnabled && result) {
+        queryClient.setQueryData<ActionItem[]>(actionsQueryKeys.mock(), (previous) =>
+          (previous ?? []).map((action) => (action.id === result.id ? result : action)),
+        )
+        return
+      }
+
       queryClient.setQueryData<ActionItem[]>(actionsQueryKeys.mock(), (previous) =>
         (previous ?? []).map((action) =>
-          action.id === actionId
+          action.id === variables.actionId
             ? {
                 ...action,
-                attachments: action.attachments.filter((attachment) => attachment.id !== attachmentId),
+                attachments: action.attachments.filter((attachment) => attachment.id !== variables.attachmentId),
               }
             : action,
         ),
@@ -220,27 +276,39 @@ export function useCreateActionMutation() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: createActionMock,
-    onSuccess: ({ title, area, source, sourceRef, priority, owner, dueDate }) => {
+    mutationFn: async (payload: CreateActionPayload) => {
+      if (isActionsBackendEnabled) {
+        return createActionApi(payload)
+      }
+
+      await createActionMock(payload)
+      return null
+    },
+    onSuccess: (result, variables) => {
+      if (isActionsBackendEnabled && result) {
+        queryClient.setQueryData<ActionItem[]>(actionsQueryKeys.mock(), (previous) => [result, ...(previous ?? [])])
+        return
+      }
+
       queryClient.setQueryData<ActionItem[]>(actionsQueryKeys.mock(), (previous) => {
         const current = previous ?? []
 
         return [
           {
             id: buildActionId(current),
-            title,
-            area,
-            source,
-            sourceRef,
-            priority,
+            title: variables.title,
+            area: variables.area,
+            source: variables.source,
+            sourceRef: variables.sourceRef,
+            priority: variables.priority,
             status: 'Open',
-            owner,
-            dueDate,
+            owner: variables.owner,
+            dueDate: variables.dueDate,
             progress: 0,
             updates: [
               {
                 title: 'Action created',
-                detail: `${source} ${sourceRef} membuat CAPA baru untuk area ${area}.`,
+                detail: `${variables.source} ${variables.sourceRef} membuat CAPA baru untuk area ${variables.area}.`,
                 time: '11 Apr, 15:05',
               },
             ],

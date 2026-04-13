@@ -1,3 +1,5 @@
+import { useAuthStore } from '../../../shared/store/useAuthStore'
+
 export type ActionStatus = 'Open' | 'In Progress' | 'Blocked' | 'Done'
 export type ActionPriority = 'Critical' | 'High' | 'Medium'
 export type ActionSource = 'Incident' | 'Inspection' | 'Audit'
@@ -32,6 +34,52 @@ export type ActionItem = {
   updates: ActionUpdate[]
   attachments: ActionAttachment[]
 }
+
+export type AssignOwnerPayload = {
+  actionId: string
+  owner: string
+}
+
+export type UpdateActionStatusPayload = {
+  actionId: string
+  status: ActionStatus
+}
+
+export type UpdateActionProgressPayload = {
+  actionId: string
+  progress: number
+  status: ActionStatus
+  note: string
+}
+
+export type AddActionAttachmentPayload = {
+  actionId: string
+  name: string
+  kind: ActionAttachment['kind']
+  mimeType?: string
+  sizeLabel?: string
+  previewUrl?: string
+}
+
+export type RemoveActionAttachmentPayload = {
+  actionId: string
+  attachmentId: string
+}
+
+export type CreateActionPayload = {
+  title: string
+  area: string
+  source: ActionItem['source']
+  sourceRef: string
+  priority: ActionItem['priority']
+  owner: string
+  dueDate: string
+}
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+const USE_MOCK_ACTIONS = import.meta.env.VITE_USE_MOCK_ACTIONS === 'true'
+
+export const isActionsBackendEnabled = !USE_MOCK_ACTIONS && API_BASE_URL.length > 0
 
 const monthMap: Record<string, number> = {
   Jan: 0,
@@ -235,7 +283,94 @@ const mockActions: ActionItem[] = [
   },
 ]
 
+async function parseErrorMessage(response: Response) {
+  try {
+    const data = (await response.json()) as { message?: string; error?: { message?: string } }
+    return data.error?.message || data.message || 'Permintaan actions gagal diproses.'
+  } catch {
+    return 'Permintaan actions gagal diproses.'
+  }
+}
+
+async function actionsRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = useAuthStore.getState().session?.accessToken
+
+  if (!token) {
+    throw new Error('Sesi tidak ditemukan. Silakan login ulang.')
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      ...(init?.headers || {}),
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+
+  return (await response.json()) as T
+}
+
 export async function fetchActionsMock(): Promise<ActionItem[]> {
+  if (isActionsBackendEnabled) {
+    return actionsRequest<ActionItem[]>('/actions')
+  }
+
   await new Promise((resolve) => setTimeout(resolve, 320))
   return mockActions
+}
+
+export async function assignActionOwnerApi(payload: AssignOwnerPayload): Promise<ActionItem> {
+  return actionsRequest<ActionItem>(`/actions/${payload.actionId}/owner`, {
+    method: 'PATCH',
+    body: JSON.stringify({ owner: payload.owner }),
+  })
+}
+
+export async function updateActionStatusApi(payload: UpdateActionStatusPayload): Promise<ActionItem> {
+  return actionsRequest<ActionItem>(`/actions/${payload.actionId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: payload.status }),
+  })
+}
+
+export async function updateActionProgressApi(payload: UpdateActionProgressPayload): Promise<ActionItem> {
+  return actionsRequest<ActionItem>(`/actions/${payload.actionId}/progress`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      progress: payload.progress,
+      status: payload.status,
+      note: payload.note,
+    }),
+  })
+}
+
+export async function addActionAttachmentApi(payload: AddActionAttachmentPayload): Promise<ActionItem> {
+  return actionsRequest<ActionItem>(`/actions/${payload.actionId}/attachments`, {
+    method: 'POST',
+    body: JSON.stringify({
+      name: payload.name,
+      kind: payload.kind,
+      mimeType: payload.mimeType,
+      sizeLabel: payload.sizeLabel,
+      previewUrl: payload.previewUrl,
+    }),
+  })
+}
+
+export async function removeActionAttachmentApi(payload: RemoveActionAttachmentPayload): Promise<ActionItem> {
+  return actionsRequest<ActionItem>(`/actions/${payload.actionId}/attachments/${payload.attachmentId}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function createActionApi(payload: CreateActionPayload): Promise<ActionItem> {
+  return actionsRequest<ActionItem>('/actions', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
 }

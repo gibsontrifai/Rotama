@@ -170,3 +170,31 @@ export async function refreshTokenApi(refreshToken: string): Promise<Pick<AuthSe
     expiresAt,
   }
 }
+
+export async function activateAccountApi(token: string): Promise<string> {
+  if (token.trim().length < 20) {
+    throw new Error('Token aktivasi tidak valid.')
+  }
+
+  if (USE_MOCK_AUTH) {
+    return 'Akun berhasil diaktivasi. Silakan login ke aplikasi.'
+  }
+
+  const response = await fetch(`${API_BASE_URL}/users/activate?token=${encodeURIComponent(token)}`, {
+    method: 'GET',
+  })
+
+  const fallbackMessage = 'Aktivasi akun gagal. Silakan hubungi administrator.'
+
+  if (!response.ok) {
+    try {
+      const errorData = (await response.json()) as { message?: string; error?: { message?: string } }
+      throw new Error(errorData.error?.message || errorData.message || fallbackMessage)
+    } catch {
+      throw new Error(fallbackMessage)
+    }
+  }
+
+  const data = (await response.json()) as { message?: string }
+  return data.message || 'Akun berhasil diaktivasi. Silakan login ke aplikasi.'
+}
